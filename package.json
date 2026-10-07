@@ -1,0 +1,16 @@
+{
+  "name": "ai-code-review-pipeline-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Code Review Lab — deterministic pipeline + LLM vs a general wandering agent, on a seeded buggy diff.",
+  "scripts": {
+    "start": "node app/server.js",
+    "report": "node scripts/review-report.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
+    "check": "npm test && npm run report"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

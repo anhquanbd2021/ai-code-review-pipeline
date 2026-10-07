@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AI Code Review Lab — deterministic pipeline + judgment vs a general wandering agent, on one seeded buggy diff.">
+  <title>AI Code Review Lab — pipeline beats agent</title>
+  <link rel="stylesheet" href="/tokens.css">
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--color-bg);
+      color: var(--color-text);
+      font-family: var(--font-body);
+      font-size: var(--step-base);
+      line-height: 1.6;
+    }
+    a { color: var(--color-accent-fill); }
+    a:focus-visible, input:focus-visible, .control:focus-within {
+      outline: 2px solid var(--color-accent-fill);
+      outline-offset: 2px;
+      border-radius: var(--radius-sm);
+    }
+    main { max-width: 1100px; margin: 0 auto; padding: var(--space-6) var(--space-5); }
+    header.hero { margin-bottom: var(--space-7); }
+    .eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: var(--step-xs); color: var(--color-accent-fill); margin: 0 0 var(--space-2); }
+    h1 { font-size: var(--step-2xl); margin: 0 0 var(--space-3); line-height: 1.15; }
+    .lede { font-size: var(--step-lg); color: var(--color-text); opacity: .85; margin: 0 0 var(--space-4); max-width: 60ch; }
+    .warning { padding: var(--space-3) var(--space-4); background: var(--color-surface); border-left: 3px solid var(--color-accent-fill); border-radius: var(--radius-sm); font-size: var(--step-sm); }
+
+    section.panel {
+      background: var(--color-surface);
+      border: 1px solid rgba(226,232,240,.08);
+      border-radius: var(--radius-md);
+      padding: var(--space-5);
+    }
+    .eyebrow.small { font-size: var(--step-xs); }
+
+    .fixture { margin-bottom: var(--space-5); }
+    .fixture h2 { margin: 0 0 var(--space-2); }
+    .meta { margin: 0; opacity: .7; }
+
+    .controls { margin-bottom: var(--space-6); }
+    .control-note { margin: 0 0 var(--space-4); font-size: var(--step-sm); opacity: .8; max-width: 70ch; }
+    .control-grid { display: grid; grid-template-columns: minmax(240px, 1fr) 2fr; gap: var(--space-4); align-items: start; }
+    @media (max-width: 760px) { .control-grid { grid-template-columns: 1fr; } }
+    .control-set { margin: 0; border: 1px solid rgba(226,232,240,.12); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4); }
+    .control-set legend { font-size: var(--step-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--accent-300); padding: 0 var(--space-2); }
+    #rule-toggles { display: flex; flex-direction: column; }
+    .control { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; cursor: pointer; font-size: var(--step-sm); }
+    .control input[type="checkbox"] { flex: none; width: 18px; height: 18px; accent-color: var(--color-accent-fill); }
+    .control-text { display: flex; flex-direction: column; line-height: 1.35; }
+    .control-sub { font-size: var(--step-xs); opacity: .65; }
+
+    .columns { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); }
+    @media (max-width: 760px) { .columns { grid-template-columns: 1fr; } }
+
+    .col-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+    .col-head h2 { margin: 0; font-size: var(--step-lg); }
+    .col-tag { font-size: var(--step-xs); padding: 2px 8px; border-radius: 999px; background: var(--accent-900); color: var(--accent-200); }
+
+    .stat-grid { list-style: none; margin: 0 0 var(--space-4); padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: var(--space-3); }
+    .stat-grid li { background: var(--color-bg); border-radius: var(--radius-sm); padding: var(--space-3); }
+    .stat-num { display: block; font-size: var(--step-xl); font-weight: 700; color: var(--color-accent-fill); }
+    .stat-label { font-size: var(--step-xs); opacity: .7; }
+
+    .missed { font-size: var(--step-sm); margin: 0 0 var(--space-4); }
+    .missed b { color: var(--accent-300); }
+
+    .comments { list-style: none; margin: 0; padding: 0; }
+    .comments > li {
+      background: var(--color-bg);
+      border-radius: var(--radius-sm);
+      padding: var(--space-3);
+      margin-bottom: var(--space-2);
+      border-left: 3px solid transparent;
+    }
+    .comment.misanchored { border-left-color: var(--color-bad); }
+    .comment.anchored { border-left-color: var(--color-ok); }
+    .comment.noise { border-left-color: var(--color-warn); }
+    .comment-head { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; font-size: var(--step-xs); font-family: var(--font-mono); }
+    .comment-head .file { color: var(--accent-300); word-break: break-all; }
+    .comment-head .line { opacity: .7; }
+    .tag { padding: 1px 6px; border-radius: var(--radius-sm); font-size: var(--step-xs); }
+    .tag-ok { background: var(--color-ok-bg); color: var(--color-ok); }
+    .tag-bad { background: var(--color-bad-bg); color: var(--color-bad); }
+    .tag-warn { background: var(--color-warn-bg); color: var(--color-warn); }
+    .tag-info { background: var(--accent-800); color: var(--accent-200); }
+    .comment-text { margin: var(--space-2) 0 0; font-size: var(--step-sm); }
+
+    .drops { list-style: none; margin: var(--space-3) 0 0; padding: 0; }
+    .drops li { font-size: var(--step-sm); color: var(--color-warn); padding: var(--space-2) 0; }
+    .drops .file { font-family: var(--font-mono); color: var(--accent-300); }
+
+    .verdict {
+      margin-top: var(--space-6);
+      text-align: center;
+      padding: var(--space-5);
+    }
+    .verdict .ratio { font-size: var(--step-2xl); font-weight: 700; color: var(--color-accent-fill); }
+    .verdict .ratio-sub { font-size: var(--step-lg); }
+    .verdict p { margin: var(--space-2) 0 0; opacity: .8; }
+
+    .foot { margin-top: var(--space-6); text-align: center; font-size: var(--step-sm); opacity: .8; }
+  </style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <p class="eyebrow">AI Code Review Lab · deterministic pipeline + LLM</p>
+    <h1>Plumbing beats wandering.</h1>
+    <p class="lede">Feed one seeded buggy diff through two reviewers: a general agent that wanders the repo, and a deterministic pipeline with an LLM inside it. Watch token burn, precision, and where every comment lands.</p>
+    <p class="warning"><strong>Educational demo.</strong> The "LLM" and "general agent" are deterministic simulations — no network, no model calls, no cost. The point is the division of labor, not the model.</p>
+  </header>
+
+  <section class="panel fixture" aria-labelledby="fixture-title">
+    <p class="eyebrow small">Fixture</p>
+    <h2 id="fixture-title">—</h2>
+    <p class="meta" id="fixture-meta">—</p>
+  </section>
+
+  <section class="panel controls" aria-labelledby="controls-h">
+    <div class="col-head">
+      <h2 id="controls-h">Pipeline controls</h2>
+      <span class="col-tag">live — re-runs the simulation</span>
+    </div>
+    <p class="control-note">Toggle the deterministic plumbing and watch the pipeline column change. The general agent has no knobs — that is the point.</p>
+    <div class="control-grid">
+      <fieldset class="control-set">
+        <legend>Stage</legend>
+        <label class="control" for="opt-reflection">
+          <input type="checkbox" id="opt-reflection" checked>
+          <span class="control-text"><b>Reflection pass</b>
+            <span class="control-sub">re-checks each generated comment before it ships</span></span>
+        </label>
+      </fieldset>
+      <fieldset class="control-set">
+        <legend>Rule pack — versioned checks, dispatched by language</legend>
+        <div id="rule-toggles"></div>
+      </fieldset>
+    </div>
+  </section>
+
+  <div class="columns" aria-live="polite">
+    <section class="panel" aria-labelledby="agent-h">
+      <div class="col-head">
+        <h2 id="agent-h">General agent</h2>
+        <span class="col-tag">wanders</span>
+      </div>
+      <ul class="stat-grid">
+        <li><span class="stat-num" id="agent-tokens">—</span><span class="stat-label">tokens burned</span></li>
+        <li><span class="stat-num" id="agent-files">—</span><span class="stat-label">files read</span></li>
+        <li><span class="stat-num" id="agent-comments">—</span><span class="stat-label">real findings</span></li>
+        <li><span class="stat-num" id="agent-noise">—</span><span class="stat-label">noise comments</span></li>
+        <li><span class="stat-num" id="agent-precision">—</span><span class="stat-label">precision</span></li>
+        <li><span class="stat-num" id="agent-recall">—</span><span class="stat-label">recall</span></li>
+      </ul>
+      <p class="missed">Missing defects: <b id="agent-missed">—</b></p>
+      <ul class="comments" id="agent-comments-list"></ul>
+    </section>
+
+    <section class="panel" aria-labelledby="pipe-h">
+      <div class="col-head">
+        <h2 id="pipe-h">Deterministic pipeline + LLM</h2>
+        <span class="col-tag">selects · groups · rules · anchors · reflects</span>
+      </div>
+      <ul class="stat-grid">
+        <li><span class="stat-num" id="pipe-tokens">—</span><span class="stat-label">tokens burned</span></li>
+        <li><span class="stat-num" id="pipe-files">—</span><span class="stat-label">files read</span></li>
+        <li><span class="stat-num" id="pipe-comments">—</span><span class="stat-label">real findings</span></li>
+        <li><span class="stat-num" id="pipe-noise">—</span><span class="stat-label">noise comments</span></li>
+        <li><span class="stat-num" id="pipe-precision">—</span><span class="stat-label">precision</span></li>
+        <li><span class="stat-num" id="pipe-recall">—</span><span class="stat-label">recall</span></li>
+      </ul>
+      <p class="missed">Missing defects: <b id="pipe-missed">—</b></p>
+      <ul class="comments" id="pipe-comments-list"></ul>
+      <ul class="drops" id="pipe-drops"></ul>
+    </section>
+  </div>
+
+  <section class="panel verdict" aria-labelledby="verdict-h">
+    <p class="eyebrow small" id="verdict-h">Economy</p>
+    <div class="ratio"><span id="ratio">—</span>x</div>
+    <div class="ratio-sub">the pipeline uses <span id="ratio-pct">—</span> of the agent's tokens</div>
+    <p>Deterministic plumbing owns file selection, position math, rule dispatch, and reflection — the model is only asked to judge. That's why it reads fewer files, posts less noise, and lands every comment on a real diff line.</p>
+  </section>
+
+  <p class="foot">Run it yourself: <code>npm start</code> · verify the claims: <code>npm test</code> · <a href="https://github.com/anhquanbd2021/ai-code-review-pipeline">Source</a></p>
+</main>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
